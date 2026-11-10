@@ -44,3 +44,11 @@ function expandAreas(areas: readonly BlockedRectangle[]): GridPoint[] {
 }
 
 export const LAB_MAP = createGridMap(GRID_WIDTH, GRID_HEIGHT, expandAreas(BLOCKED_AREAS));
+
+/** Patrol circuit approved in docs/lab-astar-fsm/spec.md: P0 -> P1 -> P2 -> P3 -> P0. */
+export const PATROL_POINTS: readonly GridPoint[] = [
+  { x: 27, y: 17 },
+  { x: 12, y: 17 },
+  { x: 12, y: 12 },
+  { x: 27, y: 5 },
+];
