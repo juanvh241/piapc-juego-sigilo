@@ -43,6 +43,10 @@ export interface GuardControllerConfig {
   readonly lookIntervalMs: number;
   readonly chaseReplanMs: number;
   readonly logLimit: number;
+  /** Upgrade 1: pause at each patrol point (0 disables it). */
+  readonly patrolPauseMs?: number;
+  /** Upgrade 1: look-around amplitude during the pause, in radians. */
+  readonly patrolLookRadians?: number;
 }
 
 export interface GuardRoute {
@@ -64,6 +68,8 @@ export interface GuardControllerState {
   readonly pendingRouteFailure: string | null;
   readonly destinationReached: boolean;
   readonly lookSteps: number;
+  /** Upgrade 1: facing on arrival at the patrol point; restored after the pause. */
+  readonly pauseBaseFacing: Vector2 | null;
   readonly log: readonly TransitionRecord[];
   readonly lastRecord: TransitionRecord | null;
 }
@@ -98,6 +104,7 @@ export function initialGuardController(
     pendingRouteFailure: null,
     destinationReached: false,
     lookSteps: 0,
+    pauseBaseFacing: null,
     log: [],
     lastRecord: null,
   };
@@ -149,6 +156,7 @@ export function updateGuard(
   });
   const step = stepGuard(state.brain, event, context, {
     searchDurationMs: config.searchDurationMs,
+    patrolPauseMs: config.patrolPauseMs ?? 0,
   });
   const brain = step.brain;
   const changedState = step.record.kind === "transition";
@@ -212,6 +220,21 @@ export function updateGuard(
     }
   }
 
+  // Upgrade 1: look to one side and then the other while pausing, then restore.
+  let pauseBaseFacing = state.pauseBaseFacing;
+  if (brain.state === "patrol" && brain.pauseEndsAtMs !== null) {
+    pauseBaseFacing ??= facing;
+    const pauseMs = config.patrolPauseMs ?? 0;
+    const elapsed = input.timeMs - (brain.pauseEndsAtMs - pauseMs);
+    const amplitude = config.patrolLookRadians ?? Math.PI / 4;
+    facing = rotate(pauseBaseFacing, elapsed < pauseMs / 2 ? -amplitude : amplitude);
+  } else if (pauseBaseFacing) {
+    if (route.waypoints.length === 0 || step.record.rule === "T14") {
+      facing = pauseBaseFacing;
+    }
+    pauseBaseFacing = null;
+  }
+
   const log = step.record.kind === "ignored"
     ? state.log
     : [...state.log, step.record].slice(-config.logLimit);
@@ -225,6 +248,7 @@ export function updateGuard(
     pendingRouteFailure,
     destinationReached,
     lookSteps,
+    pauseBaseFacing,
     log,
     lastRecord: step.record,
   };
@@ -247,6 +271,8 @@ function desiredGoal(brain: GuardBrain, config: GuardControllerConfig): GridPoin
     case "investigate":
       return brain.target ? worldToCell(brain.target, config.tileSize) : null;
     case "patrol":
+      // Upgrade 1: no route while pausing at a patrol point.
+      return brain.pauseEndsAtMs !== null ? null : config.patrolPoints[brain.patrolIndex] ?? null;
     case "return":
       return config.patrolPoints[brain.patrolIndex] ?? null;
     case "search":
@@ -294,6 +320,12 @@ function routeViolations(state: GuardControllerState, config: GuardControllerCon
     }
   }
   return [];
+}
+
+function rotate(vector: Vector2, radians: number): Vector2 {
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return { x: vector.x * cos - vector.y * sin, y: vector.x * sin + vector.y * cos };
 }
 
 function emptyRoute(searches: number): GuardRoute {

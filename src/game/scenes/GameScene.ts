@@ -19,6 +19,15 @@ import { cellCenter, isWalkable, worldToCell } from "../../domain/model/grid";
 import type { SoundEvent, VisionReason, VisionResult } from "../../domain/perception/perception";
 import type { SearchStatus } from "../../domain/navigation/search";
 import { timeSinceLastPerception } from "../../domain/perception/memory";
+import { throwDistraction, type DistractionRejection } from "../../application/simulation/distraction";
+import {
+  ALERT_FLASH_MS,
+  ALERT_SHAKE_INTENSITY,
+  ALERT_SHAKE_MS,
+  shouldTriggerAlert,
+} from "../presentation/alertImpact";
+import { alertLevel, updateAlertMeter, type AlertLevel } from "../presentation/alertMeter";
+import { CONE_COLORS, coneStyle } from "../presentation/coneStyle";
 
 const PLAYER_SPEED = 190;
 const STEP_MS = 100;
@@ -50,13 +59,22 @@ const EVENT_LABELS: Readonly<Record<TransitionRecord["event"], string>> = {
   "destination-reached": "DestinoAlcanzado",
   tick: "Tick",
 };
-// Presentation only: the colour follows the state, it never decides it.
-const STATE_COLORS: Readonly<Record<GuardStateName, number>> = {
-  patrol: 0x6b8afd,
-  investigate: 0xe5b454,
-  chase: 0xe16969,
-  search: 0xe58f54,
-  return: 0xa98bf0,
+// Presentation only: the colour follows the state, it never decides it (upgrade 2).
+const STATE_COLORS: Readonly<Record<GuardStateName, number>> = CONE_COLORS;
+const LEVEL_LABELS: Readonly<Record<AlertLevel, string>> = {
+  calm: "CALMA",
+  suspicion: "SOSPECHA",
+  alert: "ALERTA",
+};
+const LEVEL_COLORS: Readonly<Record<AlertLevel, number>> = {
+  calm: 0x73c991,
+  suspicion: 0xe5b454,
+  alert: 0xe16969,
+};
+const REJECTION_LABELS: Readonly<Record<DistractionRejection, string>> = {
+  "fuera-de-alcance": "fuera de alcance",
+  "celda-bloqueada": "celda bloqueada",
+  enfriamiento: "esperando enfriamiento",
 };
 
 export class GameScene extends Phaser.Scene {
@@ -83,6 +101,14 @@ export class GameScene extends Phaser.Scene {
   private paused = false;
   private pendingSound: SoundEvent | null = null;
   private drawnRoute: object | null = null;
+  // Upgrades 4, 7 and 8 (presentation and player input only).
+  private lastAlertMs: number | null = null;
+  private lastThrowMs: number | null = null;
+  private throwNotice = "";
+  private alertValue = 0;
+  private alertGraphics!: Phaser.GameObjects.Graphics;
+  private alertLabel!: Phaser.GameObjects.Text;
+  private distractionMarker!: Phaser.GameObjects.Arc;
 
   public constructor() {
     super("GameScene");
@@ -95,6 +121,10 @@ export class GameScene extends Phaser.Scene {
     this.paused = false;
     this.pendingSound = null;
     this.drawnRoute = null;
+    this.lastAlertMs = null;
+    this.lastThrowMs = null;
+    this.throwNotice = "";
+    this.alertValue = 0;
     this.cameras.main.setBackgroundColor("#10161c");
     this.drawGrid();
 
@@ -161,8 +191,19 @@ export class GameScene extends Phaser.Scene {
         fontSize: "14px",
       })
       .setDepth(10);
+    this.distractionMarker = this.add
+      .circle(0, 0, 9, 0x000000, 0)
+      .setStrokeStyle(3, 0xe5b454)
+      .setDepth(5)
+      .setVisible(false);
+    this.alertGraphics = this.add.graphics().setDepth(9);
+    this.alertLabel = this.add
+      .text(16, 34, "", { color: "#d9e4ea", fontFamily: "monospace", fontSize: "12px" })
+      .setDepth(10);
+    this.input.on("pointerdown", this.handleDistraction, this);
+
     this.add
-      .text(16, GRID_HEIGHT * TILE_SIZE - 14, "WASD mover | Q sonido | ESPACIO BFS/A* | P pausa | N paso | R reinicio", {
+      .text(16, GRID_HEIGHT * TILE_SIZE - 14, "WASD mover | Q sonido | CLIC distractor | ESPACIO BFS/A* | P pausa | N paso | R reinicio", {
         color: "#9eb4c2",
         fontFamily: "monospace",
         fontSize: "12px",
@@ -249,6 +290,20 @@ export class GameScene extends Phaser.Scene {
     if (result.record.kind === "transition") {
       console.info("[fsm]", JSON.stringify(result.record));
     }
+    // Upgrade 4: single shake + flash when the guard starts a chase.
+    if (shouldTriggerAlert(result.record, this.lastAlertMs, this.simulationTimeMs)) {
+      this.lastAlertMs = this.simulationTimeMs;
+      this.cameras.main.shake(ALERT_SHAKE_MS, ALERT_SHAKE_INTENSITY);
+      this.cameras.main.flash(ALERT_FLASH_MS, 225, 105, 105);
+      console.info("[alerta]", JSON.stringify({ timeMs: this.simulationTimeMs, rule: result.record.rule }));
+    }
+    // Upgrade 8: alert meter follows state and vision; nothing reads it back.
+    this.alertValue = updateAlertMeter(
+      this.alertValue,
+      result.state.brain.state,
+      result.vision.visible,
+      deltaMs,
+    );
     if (result.violations.length > 0) {
       console.error("[fsm] invariante violada", result.violations);
     }
@@ -267,7 +322,50 @@ export class GameScene extends Phaser.Scene {
       this.drawRoute();
       this.drawnRoute = state.route.result;
     }
+    this.drawAlertMeter();
+    const sound = state.perception.soundEvent;
+    this.distractionMarker.setVisible(sound !== null && this.throwNotice.startsWith("ruido"));
+    if (sound) {
+      this.distractionMarker.setPosition(sound.position.x, sound.position.y);
+    }
     this.updateHud();
+  }
+
+  /** Upgrade 7: left click throws a noise to the clicked cell. */
+  private handleDistraction(pointer: Phaser.Input.Pointer): void {
+    const result = throwDistraction({
+      player: { x: this.player.x, y: this.player.y },
+      target: { x: pointer.worldX, y: pointer.worldY },
+      map: LAB_MAP,
+      tileSize: TILE_SIZE,
+      nowMs: this.simulationTimeMs,
+      lastThrowMs: this.lastThrowMs,
+    });
+    if (result.accepted) {
+      this.lastThrowMs = this.simulationTimeMs;
+      this.pendingSound = result.sound;
+      this.throwNotice = `ruido lanzado a ${cellText(result.sound.position)}`;
+    } else {
+      this.throwNotice = `distractor rechazado: ${REJECTION_LABELS[result.reason]}`;
+    }
+    console.info("[distractor]", JSON.stringify({ timeMs: this.simulationTimeMs, ...result }));
+  }
+
+  /** Upgrade 8: bar, level label and red frame during ALERTA. */
+  private drawAlertMeter(): void {
+    const level = alertLevel(this.alertValue);
+    const width = 160;
+    this.alertGraphics.clear();
+    this.alertGraphics.fillStyle(0x1b252d, 0.9);
+    this.alertGraphics.fillRect(16, 52, width, 8);
+    this.alertGraphics.fillStyle(LEVEL_COLORS[level], 1);
+    this.alertGraphics.fillRect(16, 52, (width * this.alertValue) / 100, 8);
+    if (level === "alert") {
+      this.alertGraphics.lineStyle(4, 0xe16969, 0.8);
+      this.alertGraphics.strokeRect(2, 2, GRID_WIDTH * TILE_SIZE - 4, GRID_HEIGHT * TILE_SIZE - 4);
+    }
+    this.alertLabel.setText(`${LEVEL_LABELS[level]} ${Math.round(this.alertValue)}`);
+    this.alertLabel.setColor(`#${LEVEL_COLORS[level].toString(16).padStart(6, "0")}`);
   }
 
   private lastVision: VisionResult | null = null;
@@ -331,8 +429,10 @@ export class GameScene extends Phaser.Scene {
     const state = this.guardState;
     this.perceptionGraphics.clear();
     const facingAngle = Math.atan2(state.facing.y, state.facing.x);
+    // Upgrade 2: same range and angle as perception; only the style reacts.
     const half = LAB_GUARD_CONFIG.fieldOfViewRadians / 2;
-    this.perceptionGraphics.fillStyle(vision.visible ? 0x73c991 : 0x6b8afd, 0.16);
+    const style = coneStyle(state.brain.state, vision.visible);
+    this.perceptionGraphics.fillStyle(style.fillColor, style.fillAlpha);
     this.perceptionGraphics.beginPath();
     this.perceptionGraphics.moveTo(state.position.x, state.position.y);
     this.perceptionGraphics.arc(
@@ -344,6 +444,10 @@ export class GameScene extends Phaser.Scene {
     );
     this.perceptionGraphics.closePath();
     this.perceptionGraphics.fillPath();
+    if (style.outline) {
+      this.perceptionGraphics.lineStyle(2, style.fillColor, 0.85);
+      this.perceptionGraphics.strokePath();
+    }
 
     const sound = state.perception.soundEvent;
     if (sound) {
@@ -371,7 +475,9 @@ export class GameScene extends Phaser.Scene {
       ? `buscar resta ${Math.max(0, (brain.searchEndsAtMs - this.simulationTimeMs) / 1000).toFixed(1)}s`
       : brain.stalled
         ? "SIN PATRULLA ALCANZABLE"
-        : `patrulla -> P${brain.patrolIndex}`;
+        : brain.state === "patrol" && brain.pauseEndsAtMs !== null
+          ? `pausa ${Math.max(0, (brain.pauseEndsAtMs - this.simulationTimeMs) / 1000).toFixed(1)}s -> P${brain.patrolIndex}`
+          : `patrulla -> P${brain.patrolIndex}`;
 
     this.hud.setText([
       `ESTADO ${STATE_LABELS[brain.state]}${this.paused ? "  [PAUSA]" : ""}`,
@@ -385,6 +491,7 @@ export class GameScene extends Phaser.Scene {
         ? `${state.algorithm === "astar" ? "A*" : "BFS"} ${STATUS_LABELS[route.status]} costo ${route.totalCost ?? "-"} exp ${route.expandedNodes}`
         : `${state.algorithm === "astar" ? "A*" : "BFS"} sin ruta`,
       extra,
+      ...(this.throwNotice ? [this.throwNotice] : []),
     ]);
   }
 }

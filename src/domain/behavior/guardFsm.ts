@@ -36,6 +36,8 @@ export interface GuardContext {
 
 export interface GuardTimings {
   readonly searchDurationMs: number;
+  /** Upgrade 1: pause at each reached patrol point. 0 (default) disables it. */
+  readonly patrolPauseMs?: number;
 }
 
 export interface GuardBrain {
@@ -47,6 +49,8 @@ export interface GuardBrain {
   readonly patrolIndex: number;
   readonly enteredAtMs: number;
   readonly searchEndsAtMs: number | null;
+  /** Upgrade 1: end of the pause at a patrol point; null when not pausing. */
+  readonly pauseEndsAtMs: number | null;
   readonly failedPatrolAttempts: number;
   readonly stalled: boolean;
 }
@@ -87,6 +91,7 @@ export function initialGuardBrain(): GuardBrain {
     patrolIndex: 0,
     enteredAtMs: 0,
     searchEndsAtMs: null,
+    pauseEndsAtMs: null,
     failedPatrolAttempts: 0,
     stalled: false,
   };
@@ -157,9 +162,12 @@ export function stepGuard(
     enteredAtMs: time,
     target: null,
     searchEndsAtMs: null,
+    pauseEndsAtMs: null,
     stalled: false,
     ...changes,
   });
+  const pauseMs = timings.patrolPauseMs ?? 0;
+  const pauseUntil = pauseMs > 0 ? time + pauseMs : null;
 
   const ignore = (guard: string): GuardStepResult => ({
     brain: withEvent,
@@ -262,18 +270,29 @@ export function stepGuard(
           brain: enter("patrol", {
             patrolIndex: nextPatrolIndex(brain.patrolIndex, context.patrolPointCount),
             failedPatrolAttempts: 0,
+            pauseEndsAtMs: pauseUntil,
           }),
-          record: record("T10", "transition", "-", "patrol", ["continuar circuito"]),
+          record: record("T10", "transition", "-", "patrol", [
+            "continuar circuito",
+            ...(pauseUntil === null ? [] : [`pausa hasta ${pauseUntil} ms`]),
+          ]),
         };
       }
       if (brain.state === "patrol") {
+        if (brain.pauseEndsAtMs !== null) {
+          return ignore("pausa en curso");
+        }
         return {
           brain: {
             ...withEvent,
             patrolIndex: nextPatrolIndex(brain.patrolIndex, context.patrolPointCount),
             failedPatrolAttempts: 0,
+            pauseEndsAtMs: pauseUntil,
           },
-          record: record("T11", "update", "-", "patrol", ["avanzar al punto siguiente"]),
+          record: record("T11", "update", "-", "patrol", [
+            "avanzar al punto siguiente",
+            ...(pauseUntil === null ? [] : [`pausa hasta ${pauseUntil} ms`]),
+          ]),
         };
       }
       return ignore(`llegada sin efecto en ${brain.state}`);
@@ -290,6 +309,15 @@ export function stepGuard(
           };
         }
         return ignore("temporizador vigente");
+      }
+      if (brain.state === "patrol" && brain.pauseEndsAtMs !== null) {
+        if (time >= brain.pauseEndsAtMs) {
+          return {
+            brain: { ...withEvent, pauseEndsAtMs: null },
+            record: record("T14", "update", "fin de pausa", "patrol", ["continuar hacia el punto"]),
+          };
+        }
+        return ignore("pausa en curso");
       }
       return ignore("sin evento");
     }
@@ -357,6 +385,12 @@ function validateInputs(event: GuardEvent, context: GuardContext, timings: Guard
   }
   if (!Number.isFinite(timings.searchDurationMs) || timings.searchDurationMs < 0) {
     throw new Error("Search duration must be finite and non-negative.");
+  }
+  if (
+    timings.patrolPauseMs !== undefined
+    && (!Number.isFinite(timings.patrolPauseMs) || timings.patrolPauseMs < 0)
+  ) {
+    throw new Error("Patrol pause must be finite and non-negative.");
   }
   if ("position" in event) {
     assertFiniteVector(event.position);

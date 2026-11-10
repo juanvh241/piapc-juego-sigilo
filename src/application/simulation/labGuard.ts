@@ -14,6 +14,9 @@ export const LAB_GUARD_CONFIG: GuardControllerConfig = {
   lookIntervalMs: 750,
   chaseReplanMs: 250,
   logLimit: 50,
+  // Upgrade 1 (docs/upgrades/01-patrulla-pausas-mirada/spec.md).
+  patrolPauseMs: 1500,
+  patrolLookRadians: Math.PI / 4,
 };
 
 export const SOUND_RADIUS = 190;
