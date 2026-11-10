@@ -13,7 +13,7 @@ Es un juego de sigilo en vista cenital. Los gráficos son formas simples dibujad
 
 ## Escenario y objetivo
 
-- Sótano en cuadrícula de 30 x 20 celdas, con salas y pasillos, cajas como obstáculos, vidrios rotos en el piso, un cuchillo y una puerta de salida.
+- Sótano en cuadrícula de 30 x 20 celdas, laberíntico: pasillos con varios caminos y algunas cámaras más amplias, cajas como obstáculos, vidrios rotos en el piso, un cuchillo y una puerta de salida.
 - **Poca luz:** el jugador solo ve el entorno dentro de un radio de 3 celdas. Los vidrios, el cuchillo y el matón solo se ven cuando están dentro de ese radio. Un **modo demostración** (tecla V) revela todo para poder observar la IA en la presentación.
 - **Objetivo:** tomar el cuchillo, neutralizar al matón por la espalda y llegar a la puerta, que se abre al obtener la llave.
 - **Derrota:** si el matón alcanza al jugador, el nivel se reinicia.
@@ -72,10 +72,10 @@ En los dos casos, el matón recorre la ruta por puntos de paso y la recalcula cu
 ## Escenarios variables
 
 - **Generación (tecla G):**
-  - Divide la cuadrícula en salas conectadas por pasillos.
+  - Arma un laberinto de pasillos, rompe paredes al azar para crear varios caminos y abre 5 o 6 cámaras más amplias (revisado el 2026-11-10 tras la prueba humana: la primera versión con salas y pasillos se sentía como "cubículos").
   - Ubica cajas, entre 15 y 25 vidrios, el cuchillo, la puerta, el jugador y el matón en celdas libres.
 - **Validación:** con BFS se comprueba que, desde el inicio del jugador, se puede llegar al cuchillo, al matón y a la puerta, y que el matón puede alcanzar todos sus puntos de patrulla. Si algo falla, el escenario se descarta y se genera otro.
-- **Patrulla adaptada:** los puntos de patrulla son los centros de 3 o 4 salas del mapa generado. Las rutas entre ellos se calculan con el algoritmo y la navegación elegidos: no hay trayectoria fija.
+- **Patrulla adaptada:** los puntos de patrulla son los centros de 3 o 4 cámaras del mapa generado. Las rutas entre ellos se calculan con el algoritmo y la navegación elegidos: no hay trayectoria fija.
 - **Niveles:** el nivel 2 genera más vidrios y un radio de luz menor. Un segundo matón queda como extra, solo si sobra tiempo.
 
 ## Alcance y límites

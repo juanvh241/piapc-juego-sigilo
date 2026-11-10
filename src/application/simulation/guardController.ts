@@ -5,6 +5,7 @@ import {
   stepGuard,
   type GuardBrain,
   type GuardContext,
+  type GuardEvent,
   type TransitionRecord,
 } from "../../domain/behavior/guardFsm";
 import {
@@ -16,7 +17,7 @@ import {
 } from "../../domain/model/grid";
 import type { Vector2 } from "../../domain/model/vector";
 import { advanceAlongPath } from "../../domain/navigation/pathFollower";
-import type { SearchAlgorithm, SearchResult } from "../../domain/navigation/search";
+import type { EntryCosts, SearchAlgorithm, SearchResult } from "../../domain/navigation/search";
 import type { SoundEvent, VisionResult } from "../../domain/perception/perception";
 import { calculateRoute } from "./navigationDemo";
 import {
@@ -47,7 +48,12 @@ export interface GuardControllerConfig {
   readonly patrolPauseMs?: number;
   /** Upgrade 1: look-around amplitude during the pause, in radians. */
   readonly patrolLookRadians?: number;
+  /** TP-03: entry costs used by the cautious navigation (glass cells cost more). */
+  readonly cautiousCosts?: EntryCosts;
 }
+
+/** TP-03: direct = every cell costs 1; cautious = glass cells are expensive. */
+export type NavigationMode = "direct" | "cautious";
 
 export interface GuardRoute {
   readonly goal: GridPoint | null;
@@ -64,6 +70,7 @@ export interface GuardControllerState {
   readonly position: Vector2;
   readonly facing: Vector2;
   readonly algorithm: SearchAlgorithm;
+  readonly navigation: NavigationMode;
   readonly route: GuardRoute;
   readonly pendingRouteFailure: string | null;
   readonly destinationReached: boolean;
@@ -79,6 +86,8 @@ export interface GuardTickInput {
   readonly deltaMs: number;
   readonly playerPosition: Vector2;
   readonly newSound: SoundEvent | null;
+  /** TP-05: a valid takedown happened this update (checked by the application). */
+  readonly neutralize?: boolean;
 }
 
 export interface GuardTickResult {
@@ -100,6 +109,7 @@ export function initialGuardController(
     position: cellCenter(config.guardStart, config.tileSize),
     facing: { x: -1, y: 0 },
     algorithm,
+    navigation: "direct",
     route: emptyRoute(0),
     pendingRouteFailure: null,
     destinationReached: false,
@@ -116,6 +126,14 @@ export function withAlgorithm(
 ): GuardControllerState {
   // Forces a new search on the next update with the selected algorithm.
   return { ...state, algorithm, route: { ...state.route, goal: null } };
+}
+
+export function withNavigation(
+  state: GuardControllerState,
+  navigation: NavigationMode,
+): GuardControllerState {
+  // Forces a new search on the next update with the selected navigation.
+  return { ...state, navigation, route: { ...state.route, goal: null } };
 }
 
 export function updateGuard(
@@ -146,7 +164,7 @@ export function updateGuard(
     lastKnownSource: memory.source,
     patrolPointCount: config.patrolPoints.length,
   };
-  const event = selectGuardEvent(state.brain.state, {
+  const event: GuardEvent = input.neutralize ? { type: "neutralized" } : selectGuardEvent(state.brain.state, {
     visiblePlayerPosition: frame.vision.visible ? input.playerPosition : null,
     heardSoundPosition: frame.soundHeard && frame.state.soundEvent
       ? frame.state.soundEvent.position
@@ -179,7 +197,9 @@ export function updateGuard(
       && route.result?.status === "success"
       && input.timeMs - route.plannedAtMs < config.chaseReplanMs;
     if (changedState || (goalChanged && !chaseThrottled)) {
-      const result = calculateRoute(config.map, guardCell, goal, state.algorithm);
+      const result = calculateRoute(config.map, guardCell, goal, state.algorithm, {
+        entryCosts: state.navigation === "cautious" ? config.cautiousCosts : undefined,
+      });
       route = {
         goal,
         result,
@@ -244,6 +264,7 @@ export function updateGuard(
     position,
     facing,
     algorithm: state.algorithm,
+    navigation: state.navigation,
     route,
     pendingRouteFailure,
     destinationReached,
@@ -276,6 +297,7 @@ function desiredGoal(brain: GuardBrain, config: GuardControllerConfig): GridPoin
     case "return":
       return config.patrolPoints[brain.patrolIndex] ?? null;
     case "search":
+    case "neutralized":
       return null;
   }
 }

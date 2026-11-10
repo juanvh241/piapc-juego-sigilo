@@ -6,7 +6,7 @@ import type { PerceptionSource } from "../perception/memory";
  * Pure domain code: events and time are injected, nothing depends on Phaser.
  */
 
-export type GuardStateName = "patrol" | "investigate" | "chase" | "search" | "return";
+export type GuardStateName = "patrol" | "investigate" | "chase" | "search" | "return" | "neutralized";
 
 export type GuardEvent =
   | { readonly type: "player-seen"; readonly position: Vector2 }
@@ -14,7 +14,9 @@ export type GuardEvent =
   | { readonly type: "sound-heard"; readonly position: Vector2 }
   | { readonly type: "route-failed"; readonly reason: string }
   | { readonly type: "destination-reached" }
-  | { readonly type: "tick" };
+  | { readonly type: "tick" }
+  /** TP-05: valid takedown from behind; injected by the application, never arbitrated. */
+  | { readonly type: "neutralized" };
 
 export type GuardEventType = GuardEvent["type"];
 
@@ -80,6 +82,7 @@ export const GUARD_STATES: readonly GuardStateName[] = [
   "chase",
   "search",
   "return",
+  "neutralized",
 ];
 
 export function initialGuardBrain(): GuardBrain {
@@ -174,7 +177,22 @@ export function stepGuard(
     record: record(null, "ignored", guard, brain.state, []),
   });
 
+  // TP-05: Neutralizado is terminal — it ignores every event.
+  if (brain.state === "neutralized") {
+    return ignore("neutralizado: estado terminal");
+  }
+
   switch (event.type) {
+    case "neutralized": {
+      return {
+        brain: enter("neutralized", {}),
+        record: record("T15", "transition", "derribo valido", "neutralized", [
+          "detener navegacion",
+          "soltar la llave",
+        ]),
+      };
+    }
+
     case "player-seen": {
       if (brain.state === "chase") {
         return {
@@ -356,6 +374,9 @@ export function checkGuardInvariants(brain: GuardBrain, context: GuardContext): 
     )
   ) {
     violations.push("I3: indice de patrulla fuera de los puntos configurados");
+  }
+  if (brain.state === "neutralized" && (brain.target !== null || brain.searchEndsAtMs !== null)) {
+    violations.push("I6: Neutralizado conserva objetivo o temporizador");
   }
   if (
     brain.state === "investigate"

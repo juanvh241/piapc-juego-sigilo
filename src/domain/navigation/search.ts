@@ -1,7 +1,7 @@
 import { cellKey, isWalkable, type GridMap, type GridPoint } from "../model/grid";
 import { manhattanDistance, walkableNeighbors } from "./gridGraph";
 
-export type SearchAlgorithm = "bfs" | "astar";
+export type SearchAlgorithm = "bfs" | "dijkstra" | "astar";
 export type SearchStatus = "success" | "unreachable" | "invalid-start" | "invalid-goal";
 
 export interface SearchResult {
@@ -78,9 +78,33 @@ export function findPathAStar(
   goal: GridPoint,
   options: AStarOptions = {},
 ): SearchResult {
+  return bestFirstSearch("astar", map, start, goal, options);
+}
+
+/**
+ * Dijkstra (TP-03): the same best-first search with heuristic 0, so it reuses the
+ * A* code instead of duplicating it. Supports the same entry costs.
+ */
+export function findPathDijkstra(
+  map: GridMap,
+  start: GridPoint,
+  goal: GridPoint,
+  options: AStarOptions = {},
+): SearchResult {
+  return bestFirstSearch("dijkstra", map, start, goal, options);
+}
+
+function bestFirstSearch(
+  algorithm: "astar" | "dijkstra",
+  map: GridMap,
+  start: GridPoint,
+  goal: GridPoint,
+  options: AStarOptions,
+): SearchResult {
+  const heuristicTo = (point: GridPoint) => (algorithm === "astar" ? manhattanDistance(point, goal) : 0);
   const entryCosts = options.entryCosts;
   validateEntryCosts(entryCosts);
-  const invalid = validateEndpoints("astar", map, start, goal);
+  const invalid = validateEndpoints(algorithm, map, start, goal);
   if (invalid) {
     return invalid;
   }
@@ -90,7 +114,7 @@ export function findPathAStar(
   const frontier = new Map<string, AStarNode>([
     [
       startKey,
-      { point: start, cost: 0, heuristic: manhattanDistance(start, goal), order: insertionOrder },
+      { point: start, cost: 0, heuristic: heuristicTo(start), order: insertionOrder },
     ],
   ]);
   const bestCosts = new Map<string, number>([[startKey, 0]]);
@@ -108,7 +132,7 @@ export function findPathAStar(
 
     if (samePoint(current.point, goal)) {
       // g of the goal is the sum of entry costs along the route, not the step count.
-      return successResult("astar", start, goal, parents, explored, maximumFrontier, current.cost);
+      return successResult(algorithm, start, goal, parents, explored, maximumFrontier, current.cost);
     }
 
     for (const neighbor of walkableNeighbors(map, current.point)) {
@@ -126,7 +150,7 @@ export function findPathAStar(
         frontier.set(neighborKey, {
           point: neighbor,
           cost: candidateCost,
-          heuristic: manhattanDistance(neighbor, goal),
+          heuristic: heuristicTo(neighbor),
           order: insertionOrder,
         });
       }
@@ -135,7 +159,7 @@ export function findPathAStar(
     maximumFrontier = Math.max(maximumFrontier, frontier.size);
   }
 
-  return failureResult("astar", "unreachable", explored, maximumFrontier);
+  return failureResult(algorithm, "unreachable", explored, maximumFrontier);
 }
 
 function validateEndpoints(

@@ -17,6 +17,7 @@ export const CONE_COLORS: Readonly<Record<GuardStateName, number>> = {
   investigate: 0xe5b454,
   search: 0xe58f54,
   chase: 0xe16969,
+  neutralized: 0x5a6470,
 };
 
 const ALERT_STATES: ReadonlySet<GuardStateName> = new Set(["investigate", "search", "chase"]);

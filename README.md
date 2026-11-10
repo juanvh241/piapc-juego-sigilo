@@ -1,83 +1,81 @@
----
-id: laboratorio-guardia-sigilo
-titulo: Laboratorio Guardia de Sigilo
-tipo: indice
-audiencia: estudiante
-acceso: publico
-version: 3
----
+# Escapa del Sótano
 
-# Laboratorio Guardia de Sigilo
+TP final integrador de **Programación de Inteligencia Artificial y Patrones de Comportamiento** (UNRaf, 2026): IA para NPC en un videojuego.
 
-Proyecto canónico de PIAPC 2026 para aplicar desarrollo agéntico e inteligencia artificial de videojuegos.
+**Integrante:** Juan Martin Vianco Hail (trabajo individual).
 
-## Estado
+Una mafia te secuestró y te encerró en un sótano oscuro. Un matón vigila el lugar y tiene la llave de la única salida. Tenés que encontrar un cuchillo, acercarte al matón sin que te vea ni te oiga, neutralizarlo por la espalda y escapar por la puerta. El juego tiene dos niveles generados al azar: el segundo trae más vidrios y menos luz.
 
-H0 a H3 implementados: escenario base, repositorio preparado para agentes, navegación BFS/A* y percepción con memoria. La máquina de estados se incorpora en H4.
+El matón es un NPC con IA clásica: percibe con vista y oído, recuerda la última posición percibida, decide con una máquina de estados (FSM) y navega con BFS, Dijkstra o A*. Puede seguir la ruta directa o una ruta cautelosa que evita los vidrios.
 
-## Ejecución
+## Requisitos y ejecución
 
-Requiere Node.js 22 o superior.
+Requiere **Node.js 22 o superior** y npm.
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Validación completa:
+Abrí la dirección que muestra Vite (por defecto http://localhost:5173).
+
+Para la validación completa (tipos, pruebas automáticas y compilación):
 
 ```bash
 npm run validate
 ```
 
-En la escena:
+## Controles
 
-- WASD o flechas: mover al jugador.
-- Clic: elegir un destino para el guardia.
-- Espacio: alternar BFS y A*.
-- Q: emitir un sonido desde el jugador.
-- R: reiniciar el escenario.
+| Tecla | Acción |
+|---|---|
+| WASD o flechas | Moverse (los pasos hacen ruido) |
+| Shift (mantener) | Caminar lento y en silencio. El vidrio suena igual |
+| E | Neutralizar al matón: con el cuchillo, por la espalda, muy cerca y sin que te esté persiguiendo |
+| Clic | Arrojar un objeto para distraer (hasta 6 celdas, cada 2 s) |
+| **G** | **Generar otro sótano** |
+| **Espacio** | **Cambiar el algoritmo de búsqueda:** BFS → Dijkstra → A* |
+| **C** | **Cambiar la navegación:** ruta directa / ruta cautelosa |
+| **V** | **Modo demostración:** quita la oscuridad y muestra cono, ruta, nodos explorados, patrulla, memoria y estado del matón |
+| P / N | Pausa / avanzar un paso |
+| R | Reiniciar el nivel (mismo sótano) |
 
-## Propósito
+## Qué observar
 
-Construir un juego 2D cenital mínimo donde un guardia:
+- **Escenarios variables:** cada vez que presionás G cambia el laberinto: pasillos, atajos, cámaras, cajas, vidrios, cuchillo y puerta. El generador comprueba con BFS que siempre se pueda ganar y que haya al menos dos caminos hasta el cuchillo. Con V se ve que la patrulla del matón se recalcula sobre el nuevo mapa.
+- **Búsqueda:** con V activo, presioná Espacio y mirá la ruta y los nodos explorados. Dijkstra y A* encuentran el mismo costo, pero A* explora menos. BFS no admite costos.
+- **Navegación:** con C, el matón rodea los vidrios (ruta cautelosa, con Dijkstra o A*) o los cruza (ruta directa). Con BFS en modo cauteloso, el HUD avisa que ignora costos.
+- **Comportamiento:** el matón pasa por Patrullar, Investigar, Perseguir, Buscar y Regresar, y el estado terminal Neutralizado. El estado actual, el anterior y el último evento se ven en el HUD (modo V) y en la consola del navegador (`[fsm]`).
 
-- patrulla puntos definidos;
-- percibe al jugador mediante visión y sonido;
-- conserva una última posición conocida;
-- navega mediante A*;
-- sigue caminos sin mezclar búsqueda y locomoción;
-- decide mediante una máquina de estados;
-- expone telemetría suficiente para comprender y probar su conducta.
+## Documentación
 
-El proyecto no busca producir un videojuego comercial. Es un entorno de experimentación controlado, reproducible y apto para personas y agentes de desarrollo.
+- [GDD](GDD.md)
+- Specs del TP final:
+  - [TP-01 Generador de sótanos](specs/tp-01-generador-sotano.md)
+  - [TP-02 Patrulla adaptada](specs/tp-02-patrulla-adaptada.md)
+  - [TP-03 Búsqueda y navegación](specs/tp-03-busqueda-y-navegacion.md)
+  - [TP-04 Ruido del jugador](specs/tp-04-ruido-del-jugador.md)
+  - [TP-05 Cuchillo y escape](specs/tp-05-cuchillo-y-escape.md)
+  - [TP-06 Oscuridad y niveles](specs/tp-06-oscuridad-y-niveles.md)
+  - [TP-07 README y presentación](specs/tp-07-readme-y-presentacion.md)
+- [Plan de implementación](docs/tp-final/plan.md)
+- [**Presentación**](docs/presentacion.md)
+- Trabajos previos sobre el mismo proyecto:
+  - [Laboratorio de A* y FSM](docs/lab-astar-fsm/)
+  - [Práctica de navegación](docs/practica-navegacion/)
+  - [Cinco mejoras](docs/upgrades/)
+- [Arquitectura](docs/arquitectura.md), [especificación del producto](specs/01-producto.md) e [instrucciones para agentes](AGENTS.md).
 
-## Documentos
+## Arquitectura
 
-- [Especificación del producto](specs/01-producto.md)
-- [Especificación pedagógica](specs/02-pedagogica.md)
-- [Arquitectura](docs/arquitectura.md)
-- [Hitos](docs/hitos.md)
-- [Contrato para proyectos alternativos](docs/contrato-proyecto-alternativo.md)
-- [Decisiones técnicas](docs/decisiones-tecnicas.md)
-- [Auditoría H1](docs/auditoria-h1.md)
-- [Permisos recomendados](docs/permisos-recomendados.md)
-- [Registro de intervención](docs/plantillas/registro-intervencion.md)
-- [Evidencia de pruebas](docs/plantillas/evidencia-pruebas.md)
-- [H3: percepción y movimiento](docs/h3-percepcion-movimiento.md)
-- [Intervención H3](docs/evidencias/h3-intervencion.md)
-- [Validación H3](docs/evidencias/h3-validacion.md)
+| Capa | Ruta | Responsabilidad |
+|---|---|---|
+| Dominio | `src/domain/` | Grilla, búsquedas, percepción, memoria, FSM y generador. TypeScript puro, sin Phaser |
+| Aplicación | `src/application/simulation/` | Controlador del matón, ruido, reglas de derribo, captura y escape, y niveles |
+| Juego | `src/game/` | Escena Phaser: entrada, dibujo, oscuridad y HUD. No decide conductas |
 
-## Tecnología de referencia
+## Créditos y uso de IA
 
-- Phaser con TypeScript.
-- Vite para desarrollo y compilación.
-- Vitest para pruebas de dominio.
-- Node.js 22 o superior.
-- npm y archivo de bloqueo para instalaciones reproducibles.
-
-El estudiante puede adoptar Unity u otro entorno si cumple el contrato de equivalencia.
-
-## Restricción principal
-
-La lógica de navegación, percepción y decisión no dependerá de Phaser. El motor será un adaptador de entrada, tiempo, colisiones y representación visual.
+- Base: plantilla **"Guardia de Sigilo"** de la cátedra PIAPC (prof. Nicolás Nocete), sobre la que se desarrollaron los laboratorios y este TP.
+- Desarrollo asistido con **Claude Code** (modelo Claude Opus 5.5) como agente, con un proceso guiado por specs. Las specs, los planes y las decisiones fueron aprobados por el integrante, que probó cada parte jugando.
+- Sin recursos externos: todo se dibuja por código.
