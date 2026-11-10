@@ -14,6 +14,16 @@ export interface SearchResult {
   readonly explored: readonly GridPoint[];
 }
 
+/**
+ * Optional cost of ENTERING each cell, keyed by `cellKey`. Missing cells cost 1.
+ * Costs must be finite and >= 1 so that the Manhattan heuristic stays admissible.
+ */
+export type EntryCosts = ReadonlyMap<string, number>;
+
+export interface AStarOptions {
+  readonly entryCosts?: EntryCosts;
+}
+
 interface AStarNode {
   readonly point: GridPoint;
   readonly cost: number;
@@ -43,7 +53,8 @@ export function findPathBfs(map: GridMap, start: GridPoint, goal: GridPoint): Se
     explored.push(current);
 
     if (samePoint(current, goal)) {
-      return successResult("bfs", start, goal, parents, explored, maximumFrontier);
+      // BFS keeps its unit semantics: cost = number of steps, never a weighted minimum.
+      return successResult("bfs", start, goal, parents, explored, maximumFrontier, null);
     }
 
     for (const neighbor of walkableNeighbors(map, current)) {
@@ -61,7 +72,14 @@ export function findPathBfs(map: GridMap, start: GridPoint, goal: GridPoint): Se
   return failureResult("bfs", "unreachable", explored, maximumFrontier);
 }
 
-export function findPathAStar(map: GridMap, start: GridPoint, goal: GridPoint): SearchResult {
+export function findPathAStar(
+  map: GridMap,
+  start: GridPoint,
+  goal: GridPoint,
+  options: AStarOptions = {},
+): SearchResult {
+  const entryCosts = options.entryCosts;
+  validateEntryCosts(entryCosts);
   const invalid = validateEndpoints("astar", map, start, goal);
   if (invalid) {
     return invalid;
@@ -89,7 +107,8 @@ export function findPathAStar(map: GridMap, start: GridPoint, goal: GridPoint): 
     explored.push(current.point);
 
     if (samePoint(current.point, goal)) {
-      return successResult("astar", start, goal, parents, explored, maximumFrontier);
+      // g of the goal is the sum of entry costs along the route, not the step count.
+      return successResult("astar", start, goal, parents, explored, maximumFrontier, current.cost);
     }
 
     for (const neighbor of walkableNeighbors(map, current.point)) {
@@ -98,7 +117,7 @@ export function findPathAStar(map: GridMap, start: GridPoint, goal: GridPoint): 
         continue;
       }
 
-      const candidateCost = current.cost + 1;
+      const candidateCost = current.cost + entryCost(entryCosts, neighbor);
       const knownCost = bestCosts.get(neighborKey);
       if (knownCost === undefined || candidateCost < knownCost) {
         insertionOrder += 1;
@@ -167,13 +186,14 @@ function successResult(
   parents: ReadonlyMap<string, GridPoint>,
   explored: readonly GridPoint[],
   maximumFrontier: number,
+  weightedCost: number | null,
 ): SearchResult {
   const path = reconstructPath(start, goal, parents);
   return {
     algorithm,
     status: "success",
     path,
-    totalCost: path.length - 1,
+    totalCost: weightedCost ?? path.length - 1,
     expandedNodes: explored.length,
     maximumFrontier,
     explored,
@@ -215,6 +235,27 @@ function reconstructPath(
   }
 
   return path.reverse();
+}
+
+/** Cost of a given route: sum of entry costs, the start cell does not add cost. */
+export function routeCost(path: readonly GridPoint[], entryCosts?: EntryCosts): number {
+  validateEntryCosts(entryCosts);
+  return path.slice(1).reduce((total, point) => total + entryCost(entryCosts, point), 0);
+}
+
+function entryCost(entryCosts: EntryCosts | undefined, point: GridPoint): number {
+  return entryCosts?.get(cellKey(point)) ?? 1;
+}
+
+function validateEntryCosts(entryCosts: EntryCosts | undefined): void {
+  if (!entryCosts) {
+    return;
+  }
+  for (const [key, cost] of entryCosts) {
+    if (!Number.isFinite(cost) || cost < 1) {
+      throw new Error(`Entry cost for ${key} must be finite and at least 1.`);
+    }
+  }
 }
 
 function samePoint(left: GridPoint, right: GridPoint): boolean {
